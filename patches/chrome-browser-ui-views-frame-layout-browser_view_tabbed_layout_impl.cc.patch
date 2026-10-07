@@ -1,5 +1,5 @@
 diff --git a/chrome/browser/ui/views/frame/layout/browser_view_tabbed_layout_impl.cc b/chrome/browser/ui/views/frame/layout/browser_view_tabbed_layout_impl.cc
-index 389c6f8c6e66768cb20a960f11ba620c7516f44b..68fd41dd5a1e8b693c01c56e3052a378397650d3 100644
+index 389c6f8c6e66768cb20a960f11ba620c7516f44b..82a90ca974534739378240627e56c245d397f5bb 100644
 --- a/chrome/browser/ui/views/frame/layout/browser_view_tabbed_layout_impl.cc
 +++ b/chrome/browser/ui/views/frame/layout/browser_view_tabbed_layout_impl.cc
 @@ -764,7 +764,7 @@ BrowserViewTabbedLayoutImpl::CalculateProposedLayout(
@@ -11,16 +11,73 @@ index 389c6f8c6e66768cb20a960f11ba620c7516f44b..68fd41dd5a1e8b693c01c56e3052a378
    const HorizontalLayout& horizontal_layout = layout_data_->horizontal_layout;
  
    if (IsParentedTo(views().organizer_tray, views().browser_view)) {
-@@ -889,7 +889,7 @@ BrowserViewTabbedLayoutImpl::CalculateProposedLayout(
+@@ -822,10 +822,20 @@ BrowserViewTabbedLayoutImpl::CalculateProposedLayout(
+   const VerticalTabStripAnimation& vertical_tab_strip_animation =
+       layout_data_->vertical_tab_strip_animation;
+   gfx::Rect vertical_tab_strip_bounds;
++  const bool vertical_tab_strip_leading =
++      !views().vertical_tab_strip_region_view ||
++      views().vertical_tab_strip_region_view->IsVerticalTabStripLeading();
++  const int vertical_tab_strip_top_offset =
++      vertical_tab_strip_leading
++          ? vertical_tab_strip_animation.top_offset
++          : base::ClampCeil(layout_data_->revised_params.trailing_exclusion
++                                .ContentWithPadding()
++                                .height());
+   if (IsParentedTo(views().vertical_tab_strip_region_view,
+                    views().browser_view)) {
+     if (layout_data_->tab_strip_type == TabStripType::kVertical) {
+-      if (vertical_tab_strip_animation.top_offset > 0) {
++      if (vertical_tab_strip_leading &&
++      vertical_tab_strip_animation.top_offset > 0) {
+         collapsed_vertical_tab_strip_adjustment =
+             horizontal_layout.vertical_tab_strip_width;
+       }
+@@ -858,12 +868,15 @@ BrowserViewTabbedLayoutImpl::CalculateProposedLayout(
+       }
+ 
+       vertical_tab_strip_bounds =
+-          gfx::Rect(params.visual_client_area.x(),
+-                    params.visual_client_area.y() +
+-                        vertical_tab_strip_animation.top_offset,
+-                    vertical_tab_strip_width,
+-                    params.visual_client_area.height() -
+-                        vertical_tab_strip_animation.top_offset);
++          gfx::Rect(vertical_tab_strip_leading
++                    ? params.visual_client_area.x()
++                    : params.visual_client_area.right() -
++                          vertical_tab_strip_width,
++                params.visual_client_area.y() +
++                    vertical_tab_strip_top_offset,
++                vertical_tab_strip_width,
++                params.visual_client_area.height() -
++                    vertical_tab_strip_top_offset);
+ 
+       if (layout_data_->window_state == WindowState::kFullscreenWithToolbar &&
+           layout_data_->separator_info.adjust_for_missing_separator) {
+@@ -879,7 +892,7 @@ BrowserViewTabbedLayoutImpl::CalculateProposedLayout(
+ 
+       const int inset_amount = horizontal_layout.vertical_tab_strip_width -
+                                GetVerticalTabStripContentOverlap();
+-      params.InsetHorizontal(inset_amount, /*leading=*/true);
++      params.InsetHorizontal(inset_amount, vertical_tab_strip_leading);
+ 
+       // Let the vertical tab strip animate out over the content.
+       if (vertical_tab_strip_animation.current_motion) {
+@@ -888,16 +901,16 @@ BrowserViewTabbedLayoutImpl::CalculateProposedLayout(
+                 TabStripAnimations::kExpand ||
              vertical_tab_strip_animation.current_motion ==
                  TabStripAnimations::kCollapse;
-         unclipped_contents_region.Inset(gfx::Insets::TLBR(
+-        unclipped_contents_region.Inset(gfx::Insets::TLBR(
 -            0, VerticalTabStripRegionView::kCollapsedWidth, 0, 0));
-+            0, views().vertical_tab_strip_region_view->GetCollapsedWidth(), 0, 0));
++        InsetHorizontal(unclipped_contents_region, views().vertical_tab_strip_region_view->GetCollapsedWidth(),
++                      vertical_tab_strip_width);
        } else {
-         unclipped_contents_region.Inset(gfx::Insets::TLBR(
-             0, horizontal_layout.vertical_tab_strip_width, 0, 0));
-@@ -897,7 +897,7 @@ BrowserViewTabbedLayoutImpl::CalculateProposedLayout(
+-        unclipped_contents_region.Inset(gfx::Insets::TLBR(
+-            0, horizontal_layout.vertical_tab_strip_width, 0, 0));
++        InsetHorizontal(unclipped_contents_region, horizontal_layout.vertical_tab_strip_width,
++                      vertical_tab_strip_width);
+       }
      }
      layout.AddChild(views().vertical_tab_strip_region_view,
                      vertical_tab_strip_bounds,
@@ -29,3 +86,118 @@ index 389c6f8c6e66768cb20a960f11ba620c7516f44b..68fd41dd5a1e8b693c01c56e3052a378
    }
  
    if (IsParentedTo(views().vertical_tab_strip_background_blur_backdrop,
+@@ -925,11 +938,20 @@ BrowserViewTabbedLayoutImpl::CalculateProposedLayout(
+       preferred.set_width(base::ClampCeil(
+           preferred.width() * vertical_tab_strip_animation.top_corner));
+       corner_bounds =
+-          gfx::Rect(vertical_tab_strip_bounds.top_right(), preferred);
++          gfx::Rect(vertical_tab_strip_leading
++          ? vertical_tab_strip_bounds.top_right()
++          : gfx::Point(vertical_tab_strip_bounds.x() - preferred.width(),
++                       vertical_tab_strip_bounds.y()),
++      preferred);
+       corner_bounds.Outset(
+-          gfx::Outsets::TLBR(0, views::Separator::kThickness, 0, 0));
++          vertical_tab_strip_leading
++          ? gfx::Outsets::TLBR(0, views::Separator::kThickness, 0, 0)
++          : gfx::Outsets::TLBR(0, 0, 0, views::Separator::kThickness));
+     }
+-    layout.AddChild(views().vertical_tab_strip_top_corner, corner_bounds,
++    views().vertical_tab_strip_top_corner->SetOrientation(
++      vertical_tab_strip_leading ? CornerOrientation::kTopLeading
++                                 : CornerOrientation::kTopTrailing);
++  layout.AddChild(views().vertical_tab_strip_top_corner, corner_bounds,
+                     top_corner_visible);
+   }
+ 
+@@ -946,13 +968,20 @@ BrowserViewTabbedLayoutImpl::CalculateProposedLayout(
+       preferred.set_width(base::ClampCeil(
+           preferred.width() * vertical_tab_strip_animation.bottom_corner));
+       corner_bounds =
+-          gfx::Rect(vertical_tab_strip_bounds.right(),
++          gfx::Rect(vertical_tab_strip_leading
++                ? vertical_tab_strip_bounds.right()
++                : vertical_tab_strip_bounds.x() - preferred.width(),
+                     vertical_tab_strip_bounds.bottom() - preferred.height(),
+                     preferred.width(), preferred.height());
+       corner_bounds.Outset(
+-          gfx::Outsets::TLBR(0, views::Separator::kThickness, 0, 0));
++          vertical_tab_strip_leading
++          ? gfx::Outsets::TLBR(0, views::Separator::kThickness, 0, 0)
++          : gfx::Outsets::TLBR(0, 0, 0, views::Separator::kThickness));
+     }
+-    layout.AddChild(views().vertical_tab_strip_bottom_corner, corner_bounds,
++    views().vertical_tab_strip_bottom_corner->SetOrientation(
++      vertical_tab_strip_leading ? CornerOrientation::kBottomLeading
++                                 : CornerOrientation::kBottomTrailing);
++  layout.AddChild(views().vertical_tab_strip_bottom_corner, corner_bounds,
+                     bottom_corner_visible);
+   }
+ 
+@@ -1471,6 +1500,18 @@ void BrowserViewTabbedLayoutImpl::ConfigureTopContainerBackground(
+     }
+   }
+ 
++  if (layout_data_->tab_strip_type == TabStripType::kVertical &&
++      layout_data_->window_state == WindowState::kNormal &&
++      views().vertical_tab_strip_region_view &&
++      !views().vertical_tab_strip_region_view->IsVerticalTabStripLeading()) {
++    corners = CustomCornersBackground::Corners();
++    corners[CornerOrientation::kTopLeading] =
++        background->GetWindowCorner(/*upper=*/true);
++    if (!params.trailing_exclusion.IsEmpty()) {
++      corners[CornerOrientation::kTopTrailing] =
++          background->GetWindowCorner(/*upper=*/true);
++    }
++  }
+   background->SetCorners(corners);
+ }
+ 
+@@ -1595,7 +1636,25 @@ void BrowserViewTabbedLayoutImpl::DoPostLayoutVisualAdjustments(
+           vertical_tabs_bottom_corner_size;
+     }
+ 
+-    vertical_tabs_background->SetCorners(vertical_tabs_corners);
++    if (views().vertical_tab_strip_region_view &&
++      !views().vertical_tab_strip_region_view->IsVerticalTabStripLeading()) {
++    CustomCornersBackground::Corners mirrored_corners;
++    // The top corners are derived from the leading exclusion, which
++    // doesn't apply to the strip on the trailing side. The strip only
++    // has the window's top corner unless it's pushed down by the
++    // trailing caption buttons.
++    if (layout_data_->window_state == WindowState::kNormal &&
++        layout_data_->revised_params.trailing_exclusion.IsEmpty()) {
++      mirrored_corners[CornerOrientation::kTopTrailing] =
++          vertical_tabs_background->GetWindowCorner(/*upper=*/true);
++    }
++    mirrored_corners[CornerOrientation::kBottomLeading] =
++        vertical_tabs_corners[CornerOrientation::kBottomTrailing];
++    mirrored_corners[CornerOrientation::kBottomTrailing] =
++        vertical_tabs_corners[CornerOrientation::kBottomLeading];
++    vertical_tabs_corners = mirrored_corners;
++  }
++  vertical_tabs_background->SetCorners(vertical_tabs_corners);
+ 
+     // Apply shadow for expand-on-hover.
+     auto* const shadow_frame =
+@@ -1701,7 +1760,19 @@ void BrowserViewTabbedLayoutImpl::DoPostLayoutVisualAdjustments(
+           CustomCornersBackground::CornerType::kRounded;
+       corners[CornerOrientation::kBottomTrailing].type =
+           CustomCornersBackground::CornerType::kRounded;
+-      background->SetCorners(corners);
++      if (layout_data_->tab_strip_type == TabStripType::kVertical &&
++      layout_data_->window_state == WindowState::kNormal &&
++      views().vertical_tab_strip_region_view &&
++      !views().vertical_tab_strip_region_view->IsVerticalTabStripLeading()) {
++    corners = CustomCornersBackground::Corners();
++    corners[CornerOrientation::kTopLeading] =
++        background->GetWindowCorner(/*upper=*/true);
++    if (!params.trailing_exclusion.IsEmpty()) {
++      corners[CornerOrientation::kTopTrailing] =
++          background->GetWindowCorner(/*upper=*/true);
++    }
++  }
++  background->SetCorners(corners);
+     }
+ 
+     if (views().organizer_tray->GetVisible()) {
