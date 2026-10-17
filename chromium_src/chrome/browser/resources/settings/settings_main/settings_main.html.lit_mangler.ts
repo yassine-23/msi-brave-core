@@ -38,6 +38,7 @@ mangle(
 mangle((root) => {
   const switcher = getById(root, 'switcher')
   // Web3 and Leo are hidden by `pageVisibility` when disallowed.
+  // eslint-disable-next-line no-unsanitized/method
   switcher.insertAdjacentHTML('beforeend',
     view('getStarted', 'getStarted', 'GET_STARTED',
          'settings-getting-started-page-index')
